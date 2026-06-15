@@ -1,0 +1,105 @@
+"""Per-engine behavior checks (the fun, characterful ones)."""
+
+import chess
+
+from retro.timeman import TimeLimits
+from retro.engines import get_engine
+from retro.engines.shannstein import Shannstein, K
+from retro.common.evalutil import PIECE_VALUES
+from retro.common.tactics import see_gain
+
+
+def _choose(name, fen, movetime=0.4):
+    board = chess.Board(fen)
+    engine = get_engine(name)
+    move = engine.choose_move(board, TimeLimits(movetime=movetime))
+    return board, engine, move
+
+
+# --- TURAMPION ------------------------------------------------------------
+
+def test_turampion_wins_a_free_exchange():
+    # A free queen down an open file: the dead search must see there is no
+    # recapture and grab it rather than shuffling.
+    board, _, move = _choose("turampion", "4k3/8/8/3q4/8/8/3Q4/4K3 w - - 0 1")
+    assert board.is_capture(move)
+    assert see_gain(board, move) >= PIECE_VALUES[chess.QUEEN] - 1
+    assert move == chess.Move.from_uci("d2d5")
+
+
+def test_turampion_doesnt_blunder_back_the_exchange():
+    # Winning a defended rook with a queen would lose material; it should decline.
+    board, _, move = _choose("turampion", "4k3/3r4/8/8/8/8/3Q4/4K3 w - - 0 1")
+    # Whatever it plays, it must not give away the queen for the rook.
+    assert see_gain(board, move) >= 0
+
+
+# --- SHANNSTEIN -----------------------------------------------------------
+
+def test_shannstein_keeps_all_moves_when_fewer_than_k():
+    # A cramped king-and-pawn position with very few legal moves: the forward
+    # pruner must keep *all* of them (the mandatory fallback).
+    board = chess.Board("7k/8/8/8/8/8/8/K7 w - - 0 1")
+    legal = list(board.legal_moves)
+    assert len(legal) < K
+    kept = Shannstein._plausible_moves(board)
+    assert set(kept) == set(legal)
+
+
+def test_shannstein_prunes_to_k_when_many_moves():
+    board = chess.Board()  # 20 legal moves at the start
+    kept = Shannstein._plausible_moves(board)
+    assert len(kept) == K
+
+
+def test_shannstein_always_has_a_move_in_forced_line():
+    # In check with a single legal reply — must return it.
+    board = chess.Board("4k3/8/8/8/8/8/5q2/4K3 w - - 0 1")
+    _, _, move = _choose("shannstein", board.fen())
+    assert move in set(board.legal_moves)
+
+
+# --- COPYBOOK -------------------------------------------------------------
+
+def test_copybook_plays_mate_and_narrates_rule_1():
+    board, engine, move = _choose("copybook", "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1")
+    assert board.is_checkmate() is False
+    assert move == chess.Move.from_uci("a1a8")
+    assert engine.narration == "rule 1: deliver mate"
+
+
+def test_copybook_develops_a_knight_from_startpos():
+    board, engine, move = _choose("copybook", chess.STARTING_FEN)
+    mover = board.piece_at(move.from_square)
+    assert mover.piece_type == chess.KNIGHT
+    assert engine.narration == "rule 6: develop a knight"
+
+
+def test_copybook_takes_a_free_capture_rule_3():
+    # Nothing forcing; a free pawn is hanging -> rule 3 (best safe capture).
+    board, engine, move = _choose("copybook", "4k3/8/8/8/3p4/4P3/8/4K3 w - - 0 1")
+    assert board.is_capture(move)
+    assert engine.narration.startswith("rule 3")
+
+
+# --- KNEEJERK -------------------------------------------------------------
+
+def test_kneejerk_develops_on_move_one():
+    board, _, move = _choose("kneejerk", chess.STARTING_FEN, movetime=0.1)
+    mover = board.piece_at(move.from_square)
+    # Coherent development with zero lookahead: a knight comes off the back rank.
+    assert mover.piece_type == chess.KNIGHT
+    assert chess.square_rank(move.from_square) == 0
+
+
+# --- BEELINE --------------------------------------------------------------
+
+def test_beeline_steers_a_piece_toward_the_enemy_king():
+    fen = "7k/8/8/8/8/8/8/3Q3K w - - 0 1"
+    board, _, move = _choose("beeline", fen, movetime=0.4)
+    enemy_king = board.king(chess.BLACK)
+    before = chess.square_distance(move.from_square, enemy_king)
+    after = chess.square_distance(move.to_square, enemy_king)
+    # It marches a piece closer to the enemy king (and does not hang it as a rule).
+    assert after < before
+    assert board.piece_at(move.from_square).piece_type == chess.QUEEN

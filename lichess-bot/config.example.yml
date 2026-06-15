@@ -1,0 +1,69 @@
+# Example lichess-bot configuration for a RETRO ROSTER engine.
+#
+# lichess-bot (https://github.com/lichess-bot-devs/lichess-bot) runs a UCI engine
+# as a subprocess. Each RETRO ROSTER engine is exposed through a tiny wrapper in
+# lichess-bot/engines/ that launches the shared UCI driver with the right ENGINE.
+#
+# To run a bot:
+#   1. Clone lichess-bot and install its requirements.
+#   2. Copy this file to lichess-bot's `config.yml`.
+#   3. Put your Lichess bot account token below.
+#   4. Point `engine.dir` at this repo's lichess-bot/engines folder (absolute path
+#      is easiest) and set `engine.name` to the wrapper for the engine you want.
+#   5. `python3 lichess-bot.py`
+#
+# Want all five bots online at once? Make five Lichess bot accounts, copy this
+# file five times, and change `token` + `engine.name` in each.
+
+token: "PUT_YOUR_LICHESS_BOT_TOKEN_HERE"
+url: "https://lichess.org/"
+
+engine:
+  # Absolute path to this repo's wrapper folder is the most robust choice, e.g.
+  #   /home/you/B-side-bots/lichess-bot/engines
+  dir: "./engines/"
+  # One of: retro-turampion, retro-shannstein, retro-copybook, retro-kneejerk,
+  # retro-beeline  (add ".bat" on Windows).
+  name: "retro-beeline"
+  working_dir: ""
+  protocol: "uci"
+  ponder: false
+
+  uci_options:
+    # The engines have no tunable UCI options; everything is internal.
+
+  # The engines are intentionally cheap; blitz is plenty. No opening book or
+  # tablebases are needed (and none are used).
+  polyglot:
+    enabled: false
+
+abort_time: 20
+fake_think_time: false
+rate_limiting_delay: 0
+move_overhead: 1000
+
+challenge:
+  concurrency: 1
+  sort_by: "best"
+  accept_bot: true
+  only_bot: false
+  max_increment: 180
+  min_increment: 0
+  max_base: 1800
+  min_base: 0
+  variants:
+    - standard
+  time_controls:
+    - bullet
+    - blitz
+    - rapid
+  modes:
+    - casual
+    - rated
+
+greeting:
+  hello: "Hi! I'm a RETRO ROSTER engine — an earnest, charmingly limited retro idea. gl hf!"
+  goodbye: "Thanks for the game!"
+
+matchmaking:
+  allow_matchmaking: false

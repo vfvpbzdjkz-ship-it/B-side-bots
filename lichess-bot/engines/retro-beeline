@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# lichess-bot wrapper for the beeline engine. Runs the shared UCI driver with ENGINE=beeline.
+set -euo pipefail
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO"
+exec env ENGINE=beeline python3 -m retro.uci "$@"

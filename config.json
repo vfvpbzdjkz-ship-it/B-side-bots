@@ -1,0 +1,33 @@
+{
+  "_comment": "Per-engine knobs. The harness/time-management defaults live in retro/timeman.py; these are convenient overrides and the canonical roster description.",
+  "engines": {
+    "turampion": {
+      "description": "Point-count eval + dead-position (proto-quiescence) search.",
+      "quiescence_cap": 8,
+      "check_plies": 2
+    },
+    "shannstein": {
+      "description": "Selective forward pruning: search only the top-K plausible moves.",
+      "k": 7,
+      "max_depth": 4
+    },
+    "copybook": {
+      "description": "Prioritized if-then rule cascade; narrates the rule that fired.",
+      "narrate": true
+    },
+    "kneejerk": {
+      "description": "1-ply tapered piece-square eval, no lookahead.",
+      "depth": 1
+    },
+    "beeline": {
+      "description": "King-tropism eval with a shallow alpha-beta motor.",
+      "max_depth": 3,
+      "pst_weight": 1.0
+    }
+  },
+  "time": {
+    "default_budget_s": 1.0,
+    "min_budget_s": 0.02,
+    "max_budget_s": 8.0
+  }
+}
