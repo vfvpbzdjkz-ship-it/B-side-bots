@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# lichess-bot wrapper for the mirror engine. Runs the shared UCI driver with ENGINE=mirror.
+set -euo pipefail
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO"
+exec env ENGINE=mirror python3 -m retro.uci "$@"

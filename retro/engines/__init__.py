@@ -7,6 +7,7 @@ from typing import Dict, Type
 from .beeline import Beeline
 from .copybook import Copybook
 from .kneejerk import KneeJerk
+from .mirror import Mirror
 from .shannstein import Shannstein
 from .turampion import Turampion
 
@@ -17,6 +18,7 @@ ENGINES: Dict[str, Type] = {
     "copybook": Copybook,
     "kneejerk": KneeJerk,
     "beeline": Beeline,
+    "mirror": Mirror,
 }
 
 DEFAULT_ENGINE = "kneejerk"

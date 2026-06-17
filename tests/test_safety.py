@@ -113,5 +113,6 @@ def test_no_legal_moves_returns_none():
     assert harness.safe_choose(get_engine("kneejerk"), mated, TimeLimits(movetime=0.1)) is None
 
 
-def test_registry_has_all_five():
-    assert set(ENGINES) == {"turampion", "shannstein", "copybook", "kneejerk", "beeline"}
+def test_registry_has_all_engines():
+    assert set(ENGINES) == {"turampion", "shannstein", "copybook", "kneejerk",
+                            "beeline", "mirror"}

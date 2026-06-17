@@ -23,6 +23,10 @@
       "description": "King-tropism eval with a shallow alpha-beta motor.",
       "max_depth": 3,
       "pst_weight": 1.0
+    },
+    "mirror": {
+      "description": "Mirrors the opponent's last move; falls back to a random engine when the reflection is illegal. Designed to play Black.",
+      "fallback": "random-engine"
     }
   },
   "time": {

@@ -19,6 +19,7 @@ with the right `ENGINE` selected. There is one wrapper per engine, for POSIX
 - `retro-copybook`
 - `retro-kneejerk`
 - `retro-beeline`
+- `retro-mirror`  (mirrors its opponent; best deployed as a Black-only bot)
 
 ## Setup
 

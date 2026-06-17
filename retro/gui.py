@@ -52,6 +52,7 @@ class RetroRosterGUI:
         self.selected = None          # square the human picked first
         self.last_move = None
         self.thinking = False
+        self.lichess_active = False    # True while a Lichess game drives the board
 
         self._build_controls()
         self._build_board()
@@ -74,6 +75,8 @@ class RetroRosterGUI:
         tk.Button(bar, text="Play Black",
                   command=lambda: self.new_game(chess.BLACK)).pack(side="left", padx=4)
         tk.Button(bar, text="Take back", command=self.take_back).pack(side="left", padx=4)
+        tk.Button(bar, text="Play on Lichess…",
+                  command=self.open_lichess).pack(side="right")
 
     def _build_board(self) -> None:
         tk = self.tk
@@ -133,8 +136,12 @@ class RetroRosterGUI:
         self.root.update_idletasks()
 
     # --- interaction -----------------------------------------------------
+    def open_lichess(self) -> None:
+        from .lichessgui import LichessWindow
+        LichessWindow(self)
+
     def _on_click(self, event) -> None:
-        if self.thinking or self.board.is_game_over():
+        if self.thinking or self.lichess_active or self.board.is_game_over():
             return
         if self.board.turn != self.human_color:
             return

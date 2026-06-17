@@ -54,7 +54,10 @@ def run_with_deadline(choose_move, board: chess.Board, limits: TimeLimits):
     same cooperative deadline and should return its best-so-far on its own.
     """
     budget = limits.start(board.turn == chess.WHITE)
-    work_board = board.copy(stack=False)
+    # Copy *with* the move stack so strategies that react to the opponent's last
+    # move (e.g. MIRROR) can read board.peek(); a timed-out worker still only ever
+    # mutates this copy, never the board the driver is tracking.
+    work_board = board.copy(stack=True)
 
     result: dict = {}
 

@@ -1,9 +1,10 @@
 # RETRO ROSTER — B-Side Engines
 
 Five earnest, lightweight chess engines, each built around an old, outdated, or
-proof-of-concept idea. None are *intentionally* bad — every one tries its best;
-they're just charmingly limited. All ship as **UCI** engines, run on the
-**lichess-bot** bridge, and share a single safety-first harness.
+proof-of-concept idea — plus a cheeky sixth, **MIRROR**, that just parrots its
+opponent. None are *intentionally* bad — every one tries its best; they're just
+charmingly limited. All ship as **UCI** engines, run on the **lichess-bot** bridge,
+and share a single safety-first harness.
 
 | Engine     | Primary system                                               | Era / origin                                  | Difficulty |
 |------------|--------------------------------------------------------------|-----------------------------------------------|------------|
@@ -12,6 +13,7 @@ they're just charmingly limited. All ship as **UCI** engines, run on the
 | COPYBOOK   | Prioritized if-then rule cascade (symbolic expert system)    | 1950s–60s rule-based AI                       | Low        |
 | KNEEJERK   | 1-ply tapered piece-square eval (intuition, no lookahead)    | Proof of concept                              | Very Low   |
 | BEELINE    | King-tropism eval (pieces gain value near the enemy king)    | Classic eval-term gimmick                     | Low-Med    |
+| MIRROR     | Mirrors the opponent's move; random engine when it can't     | Symmetry gag (plays Black)                    | Varies     |
 
 ## Design — one harness, five strategies
 
@@ -39,12 +41,14 @@ retro/
   harness.py          safety wrapper: always legal, in time, never crashes
   timeman.py          TimeLimits + budgeting
   gui.py              Tkinter graphical board (play any engine)
+  lichess.py          stdlib Lichess Bot API client + persisted settings
+  lichessgui.py       "Play on Lichess" window (challenge bots, watch games)
   common/
     evalutil.py       material values, tapered PeSTO PST eval, game-phase
     tactics.py        mate_in_1, is_hanging, see_gain (approx SEE)
     moveutil.py       plausibility scoring, random tiebreak, helpers
   engines/
-    turampion.py  shannstein.py  copybook.py  kneejerk.py  beeline.py
+    turampion.py  shannstein.py  copybook.py  kneejerk.py  beeline.py  mirror.py
 lichess-bot/          ready-to-use wrappers + config for the Lichess bridge
 tests/                perft, safety battery, eval, tactics, per-engine behavior
 run.sh / run.bat      launch the UCI driver (ENGINE selects the strategy)
@@ -88,6 +92,26 @@ to open the board with no console window. Click a piece, then its destination;
 pawn promotions auto-queen. The status bar shows the engine's move and COPYBOOK's
 rule narration.
 
+### Play on Lichess from the GUI
+
+Click **"Play on Lichess…"** to open a panel that drives a real game on
+lichess.org with one of the engines making every move:
+
+- paste your **Lichess bot API token** — it's **saved** to `~/.retro_roster.json`
+  and reloaded next time you open the app (along with your other choices);
+- **Verify** the token (shows the logged-in account and warns if it isn't a bot
+  account);
+- choose which **engine** plays, the **colour**, **casual vs rated**, and a
+  **time control** preset;
+- **Refresh** a scrollable list of **online bots**, click one to set it as the
+  opponent (or type a username);
+- hit **Challenge & Play** — the game streams onto the main board and your engine
+  answers through the Bot API; **Resign / Stop** ends it.
+
+> The token's account must be a [Lichess **bot** account](https://lichess.org/api#tag/Bot),
+> and this needs outbound network access to lichess.org. Everything network-facing
+> runs on a background thread, so the window stays responsive.
+
 ### Building a standalone Windows `.exe`
 
 To hand someone a single double-clickable executable with nothing else to install,
@@ -123,6 +147,11 @@ add your bot token, and run. Run five accounts to put the whole roster online at
 - **BEELINE** — material + tapered PST + a *king-tropism* term (every piece gains
   value near the enemy king, plus king-ring attacker and check bonuses), driven by a
   shallow 2–3 ply alpha-beta so it attacks without simply donating material.
+- **MIRROR** — the parrot. Replies with the vertically-mirrored copy of the
+  opponent's last move (White's `e2e4` → Black's `e7e5`), keeping a symmetric game
+  symmetric. The instant the mirror image is illegal — or there's nothing to mirror
+  yet — it hands the move to a *random* one of the other engines. Designed to play
+  Black.
 
 ## Safety guarantees (the harness)
 
@@ -148,7 +177,8 @@ pytest
 - `test_tactics.py` — `mate_in_1`, `is_hanging`, `see_gain` on hand-built positions.
 - `test_engines.py` — per-engine character: TURAMPION wins a free exchange via the
   dead search, SHANNSTEIN keeps all moves under K, COPYBOOK plays the mate and
-  narrates rule 1, KNEEJERK develops on move 1, BEELINE steers toward the king.
+  narrates rule 1, KNEEJERK develops on move 1, BEELINE steers toward the king,
+  MIRROR reflects the opponent's move and falls back when it can't.
 
 ## Credits
 

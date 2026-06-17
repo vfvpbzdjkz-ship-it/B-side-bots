@@ -23,7 +23,7 @@ engine:
   #   /home/you/B-side-bots/lichess-bot/engines
   dir: "./engines/"
   # One of: retro-turampion, retro-shannstein, retro-copybook, retro-kneejerk,
-  # retro-beeline  (add ".bat" on Windows).
+  # retro-beeline, retro-mirror  (add ".bat" on Windows).
   name: "retro-beeline"
   working_dir: ""
   protocol: "uci"

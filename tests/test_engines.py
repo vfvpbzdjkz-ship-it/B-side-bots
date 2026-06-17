@@ -92,6 +92,42 @@ def test_kneejerk_develops_on_move_one():
     assert chess.square_rank(move.from_square) == 0
 
 
+# --- MIRROR ---------------------------------------------------------------
+
+def test_mirror_copies_the_opponents_move():
+    board = chess.Board()
+    board.push_uci("e2e4")  # White moves; MIRROR (Black) should reply e7e5.
+    engine = get_engine("mirror")
+    move = engine.choose_move(board, TimeLimits(movetime=0.2))
+    assert move == chess.Move.from_uci("e7e5")
+
+
+def test_mirror_handles_castling_reflection():
+    # White castles kingside; the mirror image is Black castling kingside.
+    board = chess.Board("rnbqk2r/pppp1ppp/5n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4")
+    board.push_uci("e1g1")
+    engine = get_engine("mirror")
+    move = engine.choose_move(board, TimeLimits(movetime=0.2))
+    assert move == chess.Move.from_uci("e8g8")
+
+
+def test_mirror_falls_back_to_a_legal_move_when_reflection_illegal():
+    # 1.e4 c5 2.Bb5 — Black's c5 pawn blocks the mirror image (...Bb4), so the
+    # reflection is illegal and MIRROR must delegate to a sibling engine.
+    board = chess.Board()
+    for uci in ("e2e4", "c7c5", "f1b5"):
+        board.push_uci(uci)
+    assert chess.Move.from_uci("f8b4") not in board.legal_moves  # mirror is illegal
+    move = get_engine("mirror").choose_move(board, TimeLimits(movetime=0.3))
+    assert move in set(board.legal_moves)
+
+
+def test_mirror_with_no_history_still_legal():
+    board = chess.Board()  # no moves yet -> nothing to mirror
+    move = get_engine("mirror").choose_move(board, TimeLimits(movetime=0.3))
+    assert move in set(board.legal_moves)
+
+
 # --- BEELINE --------------------------------------------------------------
 
 def test_beeline_steers_a_piece_toward_the_enemy_king():
