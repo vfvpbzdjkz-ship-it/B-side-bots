@@ -101,12 +101,16 @@ lichess.org with one of the engines making every move:
   and reloaded next time you open the app (along with your other choices);
 - **Verify** the token (shows the logged-in account and warns if it isn't a bot
   account);
+- **Upgrade to bot** — one-click, in-app conversion of the token's account into a
+  BOT account (with a confirmation prompt, since it's permanent and only works on an
+  account that has never played a game);
 - choose which **engine** plays, the **colour**, **casual vs rated**, and a
   **time control** preset;
 - **Refresh** a scrollable list of **online bots**, click one to set it as the
   opponent (or type a username);
 - hit **Challenge & Play** — the game streams onto the main board and your engine
-  answers through the Bot API; **Resign / Stop** ends it.
+  answers through the Bot API; **View on Lichess** opens the live game in your
+  browser mid-game, and **Resign / Stop** ends it.
 
 > The token's account must be a [Lichess **bot** account](https://lichess.org/api#tag/Bot),
 > and this needs outbound network access to lichess.org. Everything network-facing

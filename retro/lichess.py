@@ -100,6 +100,14 @@ class LichessClient:
         """Return the authenticated account (raises LichessError if invalid)."""
         return self._get_json("/api/account")
 
+    def upgrade_to_bot(self) -> None:
+        """Irreversibly upgrade this account to a BOT account.
+
+        Only works on an account that has **never played a game**, and cannot be
+        undone. The token must carry the ``bot:play`` scope.
+        """
+        self._request("POST", "/api/bot/account/upgrade")
+
     def online_bots(self, count: int = 50) -> List[Dict]:
         """List online bot accounts you could challenge."""
         bots = []

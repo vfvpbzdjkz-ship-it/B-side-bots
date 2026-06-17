@@ -66,6 +66,7 @@ class LichessWindow:
         self.token_entry.pack(side="left", fill="x", expand=True)
         tk.Button(tok, text="Save", command=self._save).pack(side="left", padx=4)
         tk.Button(tok, text="Verify", command=self._verify).pack(side="left")
+        tk.Button(tok, text="Upgrade to bot", command=self._upgrade).pack(side="left", padx=4)
 
         # Options row
         opts = tk.Frame(self.win)
@@ -119,6 +120,9 @@ class LichessWindow:
         self.stop_btn = tk.Button(act, text="Resign / Stop", command=self._stop,
                                   state="disabled")
         self.stop_btn.pack(side="left", padx=4)
+        self.view_btn = tk.Button(act, text="View on Lichess", command=self._open_view,
+                                  state="disabled")
+        self.view_btn.pack(side="left")
 
         # Log
         self.log_text = tk.Text(self.win, height=7, width=54, state="disabled")
@@ -207,6 +211,42 @@ class LichessWindow:
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _upgrade(self) -> None:
+        from tkinter import messagebox
+
+        client = self._client_or_log()
+        if client is None:
+            return
+        if not messagebox.askyesno(
+                "Upgrade to bot account",
+                "This permanently turns the token's account into a BOT account.\n\n"
+                "It only works if the account has NEVER played a game, and it "
+                "CANNOT be undone.\n\nProceed?",
+                icon="warning", parent=self.win):
+            return
+
+        def work():
+            try:
+                client.upgrade_to_bot()
+                self._log("Account upgraded to BOT. You can now Verify and play.")
+            except LichessError as exc:
+                self._log(f"Upgrade failed: {exc}")
+                if "already" in str(exc).lower() or "game" in str(exc).lower():
+                    self._log("(An account that has played games can't be upgraded — "
+                              "use a fresh account.)")
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _open_view(self) -> None:
+        import webbrowser
+
+        if not self.game_id:
+            self._log("No game in progress to view.")
+            return
+        url = f"{self.client.base_url if self.client else 'https://lichess.org'}/{self.game_id}"
+        self._log(f"Opening {url}")
+        webbrowser.open(url)
+
     def _refresh_bots(self) -> None:
         client = self._client_or_log()
         if client is None:
@@ -285,6 +325,7 @@ class LichessWindow:
             if game_id is None:
                 return
             self.game_id = game_id
+            self.root.after(0, lambda: self.view_btn.config(state="normal"))
             self._log(f"Game started: {game_id}")
             self._play_game(game_id, our_id, engine)
         except LichessError as exc:
@@ -382,6 +423,7 @@ class LichessWindow:
         def reset():
             self.play_btn.config(state="normal")
             self.stop_btn.config(state="disabled")
+            self.view_btn.config(state="disabled")
             self.app.lichess_active = False
         self.root.after(0, reset)
 
