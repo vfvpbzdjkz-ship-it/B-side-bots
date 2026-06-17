@@ -20,14 +20,19 @@ import chess
 
 from ..common.evalutil import MATE, PIECE_VALUES, material
 from ..common.moveutil import pick_best
+from ..common.tactics import see_gain
 from ..timeman import TimeLimits
 
 INF = MATE * 2
 
+# Full-width search depth (plies) before the dead-position search takes over.
+FULL_DEPTH = 2
+
 # How deep the quiescence ("dead") search may follow forcing moves, and how many
 # of those plies may still include checks (to avoid perpetual-check explosions).
-QUIESCENCE_CAP = 8
-CHECK_PLIES = 2
+# Kept shallow so the 2-ply full-width layer above can actually finish in time.
+QUIESCENCE_CAP = 4
+CHECK_PLIES = 1
 
 # Evaluation weights (all tunable, Turing-flavoured).
 MOBILITY_WEIGHT = 2.0
@@ -47,21 +52,71 @@ class Turampion:
         pass
 
     def choose_move(self, board: chess.Board, limits: TimeLimits) -> chess.Move:
-        # 1-ply full-width layer, then a dead-position search of every reply.
-        # Each root move is searched with a *full* window so the scored list is
-        # exact (a narrow window would cap losing moves at the alpha bound and
-        # corrupt the random tiebreak in pick_best).
+        # A full-width negamax to FULL_DEPTH plies, with the dead-position
+        # (quiescence) search at the horizon so leaves are always quiet.  Run as
+        # iterative deepening so a 1-ply answer is always in hand and the engine
+        # never flags if the 2-ply pass runs out of time.
+        max_depth = limits.depth or FULL_DEPTH
+        legal = list(board.legal_moves)
+        if not legal:  # no legal moves; harness handles game-over
+            return next(iter(board.legal_moves))
+
+        best = legal[0]
+        for depth in range(1, max_depth + 1):
+            scored = self._root(board, legal, depth, limits)
+            if scored is None:  # depth aborted on the clock; keep the last result
+                break
+            best = pick_best(scored)
+        return best
+
+    def _root(self, board, legal, depth, limits):
+        # Each root move gets a *full* window so the scored list is exact (a narrow
+        # window would cap losing moves at the alpha bound and corrupt pick_best).
         scored = []
-        for move in board.legal_moves:
+        for move in legal:
             board.push(move)
-            val = -self._dead_search(board, -INF, INF, 0, limits)
+            val = -self._search(board, depth - 1, -INF, INF, limits)
             board.pop()
+            if limits.time_up():
+                return None
             scored.append((move, val))
+        return scored
+
+    def _search(self, board, depth, alpha, beta, limits) -> float:
+        """Full-width negamax; at depth 0 hand off to the dead-position search."""
+        if board.is_checkmate():
+            return -MATE
+        if board.is_game_over():
+            return 0.0
+        if depth <= 0 or limits.time_up():
+            return self._dead_search(board, alpha, beta, 0, limits)
+
+        best = -INF
+        for move in self._ordered_moves(board):
+            board.push(move)
+            val = -self._search(board, depth - 1, -beta, -alpha, limits)
+            board.pop()
+            if val > best:
+                best = val
+            if val > alpha:
+                alpha = val
+            if alpha >= beta:
+                break
             if limits.time_up():
                 break
-        if not scored:  # no legal moves; harness handles game-over
-            return next(iter(board.legal_moves))
-        return pick_best(scored)
+        return best
+
+    @staticmethod
+    def _ordered_moves(board: chess.Board) -> List[chess.Move]:
+        """Captures (by approx gain) and checks first, to maximize beta cutoffs."""
+        def key(move):
+            score = 0
+            if board.is_capture(move):
+                score += 1000 + see_gain(board, move)
+            if board.gives_check(move):
+                score += 50
+            return score
+        return sorted(board.legal_moves, key=key, reverse=True)
 
     def _dead_search(self, board, alpha, beta, ply, limits) -> float:
         """Follow only 'considerable' moves until the position is quiet."""

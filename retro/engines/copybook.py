@@ -2,7 +2,17 @@
 
 A prioritized cascade of if-then maxims.  Each rule looks at the board and either
 returns a move or passes to the next rule.  There is no search tree at all — just
-principles, applied in order, each candidate vetted by a 1-ply safety filter.
+principles, applied in order, each candidate vetted by a sharp 1-ply safety filter
+and ranked by a static positional judgement.
+
+The "book" is deliberately strong for a search-less engine:
+
+* the **safety veto** rejects any move that hangs material *anywhere* (not just the
+  piece that moved) or that walks into mate-in-1 — so COPYBOOK rarely blunders;
+* within every maxim, candidates are ranked by a one-ply positional evaluation
+  (the shared PeSTO eval), so it picks the *best* developing move, the *best*
+  central break, the *best* quiet move — not merely the first legal one;
+* the final fallback is a full KNEEJERK-grade "play the best safe move" pass.
 
 It narrates which rule fired (``info string rule 6: develop a knight``); that
 self-explanation is the demo charm.
@@ -15,7 +25,7 @@ from typing import List, Optional, Tuple
 
 import chess
 
-from ..common.evalutil import MG_PST, EG_PST, phase_weights
+from ..common.evalutil import MG_PST, EG_PST, evaluate, phase_weights
 from ..common.moveutil import open_file_score
 from ..common.tactics import is_hanging, mate_in_1, see_gain
 from ..timeman import TimeLimits
@@ -69,26 +79,28 @@ class Copybook:
     def _rule_escape_check(self, board) -> Optional[Candidate]:
         if not board.is_check():
             return None
-        # We must move; prefer an evasion that neither hangs material nor walks
-        # into a mate, and break remaining ties by piece placement.
+        # We must move; prefer a safe evasion, and among those the one that leaves
+        # us best placed.  If nothing is "safe" we still have to play *something*.
         legal = list(board.legal_moves)
         safe = [m for m in legal if self._safe(board, m)]
         pool = safe or legal
-        best = max(pool, key=lambda m: self._move_pst_gain(board, m))
+        best = max(pool, key=lambda m: self._score_move(board, m))
         return best, "escape check safely"
 
     # --- rule 3 -----------------------------------------------------------
     def _rule_safe_capture(self, board) -> Optional[Candidate]:
         best_move = None
-        best_gain = -1
+        best_key = (-1, 0.0)
         for move in board.legal_moves:
             if not board.is_capture(move):
                 continue
             gain = see_gain(board, move)
-            if gain < 0:
+            if gain < 0 or not self._safe(board, move):
                 continue
-            if not self._allows_mate(board, move) and gain > best_gain:
-                best_gain, best_move = gain, move
+            # Win the most material; break ties by how good the position looks.
+            key = (gain, self._score_move(board, move))
+            if key > best_key:
+                best_key, best_move = key, move
         if best_move is not None:
             return best_move, "win material with a safe capture"
         return None
@@ -103,7 +115,8 @@ class Copybook:
         # Rescue the most valuable hanging piece first.
         hanging.sort(key=lambda sq: _piece_value(board, sq), reverse=True)
         for sq in hanging:
-            # (a) move it to a square where it is no longer hanging.
+            # (a) the best safe move of the piece to a square where it is safe.
+            rescues = []
             for move in board.legal_moves:
                 if move.from_square != sq or not self._safe(board, move):
                     continue
@@ -111,8 +124,12 @@ class Copybook:
                 rescued = not is_hanging(board, move.to_square)
                 board.pop()
                 if rescued:
-                    return move, "save a hanging piece"
-            # (b) otherwise add a defender so it is no longer hanging.
+                    rescues.append(move)
+            if rescues:
+                best = max(rescues, key=lambda m: self._score_move(board, m))
+                return best, "save a hanging piece"
+            # (b) otherwise the best safe move that adds a defender.
+            defends = []
             for move in board.legal_moves:
                 if move.from_square == sq or not self._safe(board, move):
                     continue
@@ -120,7 +137,10 @@ class Copybook:
                 rescued = not is_hanging(board, sq)
                 board.pop()
                 if rescued:
-                    return move, "defend a hanging piece"
+                    defends.append(move)
+            if defends:
+                best = max(defends, key=lambda m: self._score_move(board, m))
+                return best, "defend a hanging piece"
         return None
 
     # --- rule 5 -----------------------------------------------------------
@@ -129,9 +149,11 @@ class Copybook:
         king_home = chess.E1 if us == chess.WHITE else chess.E8
         if board.king(us) != king_home:
             return None  # already moved / castled
-        for move in board.legal_moves:
-            if board.is_castling(move) and not self._allows_mate(board, move):
-                return move, "castle to safety"
+        castles = [m for m in board.legal_moves
+                   if board.is_castling(m) and not self._allows_mate(board, m)]
+        if castles:
+            best = max(castles, key=lambda m: self._score_move(board, m))
+            return best, "castle to safety"
         return None
 
     # --- rule 6 -----------------------------------------------------------
@@ -141,8 +163,7 @@ class Copybook:
         # Knights before bishops.
         for piece_type, label in ((chess.KNIGHT, "develop a knight"),
                                   (chess.BISHOP, "develop a bishop")):
-            best = None
-            best_gain = -1e9
+            candidates = []
             for move in board.legal_moves:
                 mover = board.piece_at(move.from_square)
                 if mover is None or mover.piece_type != piece_type:
@@ -151,37 +172,43 @@ class Copybook:
                     continue  # only count leaving the back rank as development
                 if not self._safe(board, move):
                     continue
-                gain = self._move_pst_gain(board, move)
-                if gain > best_gain:
-                    best_gain, best = gain, move
-            if best is not None:
+                candidates.append(move)
+            if candidates:
+                best = max(candidates, key=lambda m: self._score_move(board, m))
                 return best, label
         return None
 
     # --- rule 7 -----------------------------------------------------------
     def _rule_center_pawn(self, board) -> Optional[Candidate]:
+        candidates = []
         for move in board.legal_moves:
             mover = board.piece_at(move.from_square)
             if mover is None or mover.piece_type != chess.PAWN:
                 continue
             if move.to_square in CENTER and self._safe(board, move):
-                return move, "stake a center pawn"
+                candidates.append(move)
+        if candidates:
+            best = max(candidates, key=lambda m: self._score_move(board, m))
+            return best, "stake a center pawn"
         return None
 
     # --- rule 8 -----------------------------------------------------------
     def _rule_rook_open_file(self, board) -> Optional[Candidate]:
         us = board.turn
         best = None
-        best_score = 0
+        best_key = (0, 0.0)
         for move in board.legal_moves:
             mover = board.piece_at(move.from_square)
             if mover is None or mover.piece_type != chess.ROOK:
                 continue
             if not self._safe(board, move):
                 continue
-            score = open_file_score(board, chess.square_file(move.to_square), us)
-            if score > best_score:
-                best_score, best = score, move
+            openness = open_file_score(board, chess.square_file(move.to_square), us)
+            if openness <= 0:
+                continue
+            key = (openness, self._score_move(board, move))
+            if key > best_key:
+                best_key, best = key, move
         if best is not None:
             return best, "put a rook on an open file"
         return None
@@ -197,17 +224,17 @@ class Copybook:
         squares.sort(key=lambda sq: _piece_pst(board, sq))
         for sq in squares:
             current = _piece_pst(board, sq)
-            best = None
-            best_to = current
+            improving = []
             for move in board.legal_moves:
                 if move.from_square != sq or not self._safe(board, move):
                     continue
                 board.push(move)
                 placed = _piece_pst(board, move.to_square)
                 board.pop()
-                if placed > best_to:
-                    best_to, best = placed, move
-            if best is not None:
+                if placed > current:
+                    improving.append(move)
+            if improving:
+                best = max(improving, key=lambda m: self._score_move(board, m))
                 return best, "improve the worst-placed piece"
         return None
 
@@ -218,14 +245,14 @@ class Copybook:
             return None
         safe = [m for m in legal if self._safe(board, m)]
         pool = safe or legal
-        # Prefer a move that nudges placement upward.
-        best = max(pool, key=lambda m: self._move_pst_gain(board, m))
+        # KNEEJERK-grade fallback: play the best-looking safe move.
+        best = max(pool, key=lambda m: self._score_move(board, m))
         return best, "safe waiting move"
 
     # --- safety filter ----------------------------------------------------
     def _safe(self, board: chess.Board, move: chess.Move) -> bool:
-        """1-ply veto: do not hang material to a recapture, do not allow mate-in-1."""
-        return not self._allows_mate(board, move) and not self._hangs_material(board, move)
+        """1-ply veto: do not hang material anywhere, do not allow mate-in-1."""
+        return not self._allows_mate(board, move) and not self._loses_material(board, move)
 
     @staticmethod
     def _allows_mate(board: chess.Board, move: chess.Move) -> bool:
@@ -236,25 +263,33 @@ class Copybook:
             board.pop()
 
     @staticmethod
-    def _hangs_material(board: chess.Board, move: chess.Move) -> bool:
-        if board.is_capture(move):
-            # A capture is fine as long as the exchange does not lose material.
-            return see_gain(board, move) < 0
+    def _loses_material(board: chess.Board, move: chess.Move) -> bool:
+        """True if, after this move, the opponent has a capture that wins material.
+
+        This is the heart of the improved book: it looks at *every* enemy capture
+        reply (approximate SEE), so it catches leaving any piece loose — including
+        pieces other than the one that just moved, and squares vacated behind it.
+        """
         board.push(move)
         try:
-            return is_hanging(board, move.to_square)
+            worst = 0
+            for reply in board.legal_moves:
+                if board.is_capture(reply):
+                    gain = see_gain(board, reply)
+                    if gain > worst:
+                        worst = gain
+            return worst > 0
         finally:
             board.pop()
 
-    @staticmethod
-    def _move_pst_gain(board: chess.Board, move: chess.Move) -> float:
-        before = _piece_pst(board, move.from_square)
+    def _score_move(self, board: chess.Board, move: chess.Move) -> float:
+        """Static value to us after playing ``move`` (the shared PeSTO eval)."""
+        sign = 1.0 if board.turn == chess.WHITE else -1.0
         board.push(move)
         try:
-            after = _piece_pst(board, move.to_square)
+            return sign * evaluate(board)
         finally:
             board.pop()
-        return after - before
 
 
 # --- module helpers -------------------------------------------------------
