@@ -27,12 +27,19 @@ from .evalutil import PIECE_VALUES
 
 # Refinement weights (centipawns) — comparable in scale to PST deltas so they
 # nudge square choice without overriding material or the base evaluation.
+# Part 2 — piece placement.
 W_SAFE_FROM_KICK = 15
 W_CAN_BE_KICKED = -22
 W_OUTPOST = 25
 W_KNIGHT_RIM = -18
 W_WITH_TEMPO = 12
 W_EYE_CENTER = 6
+# Part 3 — pawn structure & king safety.
+W_DOUBLED = -12          # per extra doubled pawn we create
+W_ISOLATED = -10         # per isolated pawn we create
+W_CONNECTED = 6          # a pawn move that stays connected to its neighbours
+W_ROOK_BEHIND_PASSER = 14
+W_KING_SHIELD = -18      # pushing a pawn out of our castled king's shield
 
 CENTER = {chess.D4, chess.E4, chess.D5, chess.E5}
 MINOR = (chess.KNIGHT, chess.BISHOP)
@@ -50,9 +57,15 @@ def assess(board: chess.Board, move: chess.Move) -> Tuple[float, List[str]]:
     delta = 0.0
     reasons: List[str] = []
 
+    # Part 3 needs our pawn structure *before* the move for comparison.
+    if pt == chess.PAWN:
+        doubled_before, isolated_before = _pawn_weakness(board, us)
+
     board.push(move)
     try:
         dest = move.to_square
+
+        # --- Part 2: piece placement ------------------------------------
         if pt in MINOR:
             kicked = _can_be_kicked(board, dest, us, enemy)
             if kicked:
@@ -74,6 +87,22 @@ def assess(board: chess.Board, move: chess.Move) -> Tuple[float, List[str]]:
             delta += W_EYE_CENTER
             if pt in MINOR:
                 reasons.append("eyeing the center")
+
+        # --- Part 3: pawn structure & king safety -----------------------
+        if pt == chess.PAWN:
+            doubled_after, isolated_after = _pawn_weakness(board, us)
+            delta += W_DOUBLED * max(0, doubled_after - doubled_before)
+            delta += W_ISOLATED * max(0, isolated_after - isolated_before)
+            if doubled_after <= doubled_before and isolated_after <= isolated_before \
+                    and _pawn_has_neighbour(board, dest, us):
+                delta += W_CONNECTED
+                reasons.append("pawns stay connected")
+            if _breaks_king_shield(board, move, us):
+                delta += W_KING_SHIELD
+
+        if pt == chess.ROOK and _rook_behind_passer(board, dest, us):
+            delta += W_ROOK_BEHIND_PASSER
+            reasons.append("behind the passed pawn")
     finally:
         board.pop()
 
@@ -151,3 +180,90 @@ def _eyes_center(board: chess.Board, square: int, us: chess.Color) -> bool:
     if square in CENTER:
         return True
     return any(sq in CENTER for sq in board.attacks(square))
+
+
+def _pawn_weakness(board: chess.Board, color: chess.Color) -> Tuple[int, int]:
+    """Return (doubled count, isolated count) for ``color``'s pawns."""
+    files = [0] * 8
+    for sq in board.pieces(chess.PAWN, color):
+        files[chess.square_file(sq)] += 1
+    doubled = sum(max(0, c - 1) for c in files)
+    isolated = 0
+    for f in range(8):
+        if files[f] == 0:
+            continue
+        left = files[f - 1] if f > 0 else 0
+        right = files[f + 1] if f < 7 else 0
+        if left == 0 and right == 0:
+            isolated += files[f]
+    return doubled, isolated
+
+
+def _pawn_has_neighbour(board: chess.Board, square: int, us: chess.Color) -> bool:
+    """True if a friendly pawn sits on an adjacent file (i.e. not isolated)."""
+    f = chess.square_file(square)
+    for af in (f - 1, f + 1):
+        if not 0 <= af < 8:
+            continue
+        for r in range(8):
+            piece = board.piece_at(chess.square(af, r))
+            if piece is not None and piece.piece_type == chess.PAWN and piece.color == us:
+                return True
+    return False
+
+
+def _breaks_king_shield(board: chess.Board, move: chess.Move, us: chess.Color) -> bool:
+    """True if the move pushes a pawn out of a castled king's pawn shield."""
+    king = board.king(us)
+    if king is None:
+        return False
+    home = 0 if us == chess.WHITE else 7
+    if chess.square_rank(king) != home:
+        return False  # king isn't tucked on the back rank
+    pawn_home = 1 if us == chess.WHITE else 6
+    if chess.square_rank(move.from_square) != pawn_home:
+        return False  # only the first push of a shield pawn counts
+    king_file = chess.square_file(king)
+    from_file = chess.square_file(move.from_square)
+    if king_file >= 5 and from_file >= 5:
+        return True   # kingside-castled, pushed an f/g/h pawn
+    if king_file <= 2 and from_file <= 2:
+        return True   # queenside-castled, pushed an a/b/c pawn
+    return False
+
+
+def _rook_behind_passer(board: chess.Board, square: int, us: chess.Color) -> bool:
+    """True if a rook on ``square`` stands behind a friendly passed pawn on its file."""
+    f = chess.square_file(square)
+    r = chess.square_rank(square)
+    for rr in range(8):
+        psq = chess.square(f, rr)
+        piece = board.piece_at(psq)
+        if piece is None or piece.piece_type != chess.PAWN or piece.color != us:
+            continue
+        if not _is_passed(board, psq, us):
+            continue
+        if us == chess.WHITE and r < rr:
+            return True
+        if us == chess.BLACK and r > rr:
+            return True
+    return False
+
+
+def _is_passed(board: chess.Board, square: int, color: chess.Color) -> bool:
+    """A pawn is passed if no enemy pawn can stop it on its file or the adjacent ones."""
+    file = chess.square_file(square)
+    rank = chess.square_rank(square)
+    enemy = not color
+    for f in (file - 1, file, file + 1):
+        if not 0 <= f < 8:
+            continue
+        for r in range(8):
+            piece = board.piece_at(chess.square(f, r))
+            if piece is None or piece.piece_type != chess.PAWN or piece.color != enemy:
+                continue
+            if color == chess.WHITE and r > rank:
+                return False
+            if color == chess.BLACK and r < rank:
+                return False
+    return True

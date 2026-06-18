@@ -38,6 +38,32 @@ def test_knight_on_the_rim_scores_worse_than_the_center():
     assert rim < center  # "a knight on the rim is dim"
 
 
+def test_rook_behind_a_passed_pawn_is_flagged():
+    # White rook d1->a1, sitting behind the passed a5 pawn (Tarrasch's rule).
+    delta, reasons = _reasons("4k3/8/8/P7/8/8/8/3RK3 w - - 0 1", "d1a1")
+    assert "behind the passed pawn" in reasons
+    assert delta >= 14
+
+
+def test_breaking_the_king_shield_is_penalized():
+    # King castled on g1; pushing the g-pawn breaks the shield.
+    delta, reasons = _reasons("4k3/8/8/8/8/8/6P1/6K1 w - - 0 1", "g2g3")
+    assert delta < 0
+
+
+def test_connected_pawn_move_is_flagged():
+    # e2->e3 keeps a neighbour on the d-file (not isolated).
+    delta, reasons = _reasons("4k3/8/8/8/3P4/8/4P3/4K3 w - - 0 1", "e2e3")
+    assert "pawns stay connected" in reasons
+
+
+def test_doubling_pawns_is_penalized():
+    # e4xd5 leaves doubled, isolated d-pawns (d4 + d5) — a structural penalty.
+    delta, reasons = _reasons("4k3/8/8/3p4/3PP3/8/8/4K3 w - - 0 1", "e4d5")
+    assert delta < 0
+    assert "pawns stay connected" not in reasons
+
+
 def test_developing_with_tempo_is_flagged():
     # Bishop to b5+ hits the king / pins; here Bf1-b5 attacks the knight on c6.
     board = chess.Board("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/8/PPPP1PPP/RNBQK1NR b KQkq - 0 1")
