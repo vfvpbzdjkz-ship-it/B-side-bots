@@ -28,6 +28,7 @@ import chess
 from ..common.evalutil import MG_PST, EG_PST, evaluate, game_phase, phase_weights
 from ..common.moveutil import open_file_score
 from ..common.openings import book_move
+from ..common.positional import assess
 from ..common.tactics import is_hanging, mate_in_1, see_gain
 from ..timeman import TimeLimits
 
@@ -99,25 +100,27 @@ class Copybook:
         legal = list(board.legal_moves)
         safe = [m for m in legal if self._safe(board, m)]
         pool = safe or legal
-        best = max(pool, key=lambda m: self._score_move(board, m))
-        return best, "escape check safely"
+        best, reasons = self._best(board, pool)
+        return best, self._describe("escape check safely", reasons)
 
     # --- rule 3 -----------------------------------------------------------
     def _rule_safe_capture(self, board) -> Optional[Candidate]:
         best_move = None
         best_key = (-1, 0.0)
+        best_reasons: list = []
         for move in board.legal_moves:
             if not board.is_capture(move):
                 continue
             gain = see_gain(board, move)
             if gain < 0 or not self._safe(board, move):
                 continue
-            # Win the most material; break ties by how good the position looks.
-            key = (gain, self._score_move(board, move))
+            delta, reasons = assess(board, move)
+            # Win the most material; break ties by how good the resulting square is.
+            key = (gain, self._score_move(board, move) + delta)
             if key > best_key:
-                best_key, best_move = key, move
+                best_key, best_move, best_reasons = key, move, reasons
         if best_move is not None:
-            return best_move, "win material with a safe capture"
+            return best_move, self._describe("win material with a safe capture", best_reasons)
         return None
 
     # --- rule 4 -----------------------------------------------------------
@@ -141,8 +144,8 @@ class Copybook:
                 if rescued:
                     rescues.append(move)
             if rescues:
-                best = max(rescues, key=lambda m: self._score_move(board, m))
-                return best, "save a hanging piece"
+                best, reasons = self._best(board, rescues)
+                return best, self._describe("save a hanging piece", reasons)
             # (b) otherwise the best safe move that adds a defender.
             defends = []
             for move in board.legal_moves:
@@ -154,8 +157,8 @@ class Copybook:
                 if rescued:
                     defends.append(move)
             if defends:
-                best = max(defends, key=lambda m: self._score_move(board, m))
-                return best, "defend a hanging piece"
+                best, reasons = self._best(board, defends)
+                return best, self._describe("defend a hanging piece", reasons)
         return None
 
     # --- rule 5 -----------------------------------------------------------
@@ -189,8 +192,8 @@ class Copybook:
                     continue
                 candidates.append(move)
             if candidates:
-                best = max(candidates, key=lambda m: self._score_move(board, m))
-                return best, label
+                best, reasons = self._best(board, candidates)
+                return best, self._describe(label, reasons)
         return None
 
     # --- rule 7 -----------------------------------------------------------
@@ -203,8 +206,8 @@ class Copybook:
             if move.to_square in CENTER and self._safe(board, move):
                 candidates.append(move)
         if candidates:
-            best = max(candidates, key=lambda m: self._score_move(board, m))
-            return best, "stake a center pawn"
+            best, reasons = self._best(board, candidates)
+            return best, self._describe("stake a center pawn", reasons)
         return None
 
     # --- rule 8 -----------------------------------------------------------
@@ -212,6 +215,7 @@ class Copybook:
         us = board.turn
         best = None
         best_key = (0, 0.0)
+        best_reasons: list = []
         for move in board.legal_moves:
             mover = board.piece_at(move.from_square)
             if mover is None or mover.piece_type != chess.ROOK:
@@ -221,11 +225,14 @@ class Copybook:
             openness = open_file_score(board, chess.square_file(move.to_square), us)
             if openness <= 0:
                 continue
-            key = (openness, self._score_move(board, move))
+            delta, reasons = assess(board, move)
+            key = (openness, self._score_move(board, move) + delta)
             if key > best_key:
-                best_key, best = key, move
+                best_key, best, best_reasons = key, move, reasons
         if best is not None:
-            return best, "put a rook on an open file"
+            label = "put a rook on an open file" if best_key[0] >= 2 \
+                else "put a rook on a half-open file"
+            return best, self._describe(label, best_reasons)
         return None
 
     # --- rule 9 (endgame) -------------------------------------------------
@@ -246,8 +253,8 @@ class Copybook:
             if self._safe(board, move):
                 candidates.append(move)
         if candidates:
-            best = max(candidates, key=lambda m: self._score_move(board, m))
-            return best, "push a passed pawn"
+            best, reasons = self._best(board, candidates)
+            return best, self._describe("push a passed pawn", reasons)
         return None
 
     # --- rule 10 (endgame) ------------------------------------------------
@@ -267,8 +274,8 @@ class Copybook:
             if placed > current:  # the king steps toward the centre / the action
                 improving.append(move)
         if improving:
-            best = max(improving, key=lambda m: self._score_move(board, m))
-            return best, "centralize the king"
+            best, reasons = self._best(board, improving)
+            return best, self._describe("centralize the king", reasons)
         return None
 
     # --- rule 11 ----------------------------------------------------------
@@ -292,8 +299,8 @@ class Copybook:
                 if placed > current:
                     improving.append(move)
             if improving:
-                best = max(improving, key=lambda m: self._score_move(board, m))
-                return best, "improve the worst-placed piece"
+                best, reasons = self._best(board, improving)
+                return best, self._describe("improve the worst-placed piece", reasons)
         return None
 
     # --- rule 12 ----------------------------------------------------------
@@ -304,8 +311,8 @@ class Copybook:
         safe = [m for m in legal if self._safe(board, m)]
         pool = safe or legal
         # KNEEJERK-grade fallback: play the best-looking safe move.
-        best = max(pool, key=lambda m: self._score_move(board, m))
-        return best, "safe waiting move"
+        best, reasons = self._best(board, pool)
+        return best, self._describe("safe waiting move", reasons)
 
     # --- safety filter ----------------------------------------------------
     def _safe(self, board: chess.Board, move: chess.Move) -> bool:
@@ -348,6 +355,26 @@ class Copybook:
             return sign * evaluate(board)
         finally:
             board.pop()
+
+    def _refined_score(self, board: chess.Board, move: chess.Move) -> float:
+        """Base evaluation plus the positional refinement (placement wisdom)."""
+        delta, _ = assess(board, move)
+        return self._score_move(board, move) + delta
+
+    def _best(self, board, candidates):
+        """Pick the best candidate by refined score; return (move, reasons)."""
+        best, best_score, best_reasons = None, None, []
+        for move in candidates:
+            delta, reasons = assess(board, move)
+            score = self._score_move(board, move) + delta
+            if best_score is None or score > best_score:
+                best, best_score, best_reasons = move, score, reasons
+        return best, best_reasons
+
+    @staticmethod
+    def _describe(base: str, reasons) -> str:
+        """Attach up to two book reasons to a maxim's narration."""
+        return f"{base} ({', '.join(reasons[:2])})" if reasons else base
 
 
 # --- module helpers -------------------------------------------------------

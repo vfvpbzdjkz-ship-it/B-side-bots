@@ -12,7 +12,7 @@
       "max_depth": 4
     },
     "copybook": {
-      "description": "Plays by the book: a named opening book first, then a prioritized cascade of chess-primer maxims (incl. endgame principles). Narrates the opening or rule that fired. No search.",
+      "description": "Plays by the book: a named opening book, then chess-primer maxims (incl. endgame principles) refined by a positional layer (pawn kicks, outposts, rim, tempo). Narrates the opening/rule and its reasons. No search.",
       "narrate": true
     },
     "kneejerk": {

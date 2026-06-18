@@ -48,6 +48,7 @@ retro/
     tactics.py        mate_in_1, is_hanging, see_gain (approx SEE)
     moveutil.py       plausibility scoring, random tiebreak, helpers
     openings.py       built-in named opening book (COPYBOOK plays "by the book")
+    positional.py     placement refinement: pawn kicks, outposts, the rim, tempo
   engines/
     turampion.py  shannstein.py  copybook.py  kneejerk.py  beeline.py  mirror.py
 lichess-bot/          ready-to-use wrappers + config for the Lichess bridge
@@ -150,8 +151,12 @@ add your bot token, and run. Run five accounts to put the whole roster online at
   hanging piece, castle, develop a minor knights-first, stake a center pawn, rook to
   an open file, and endgame principles (push a passed pawn, centralize the king),
   with a best-safe-move fallback. No search tree: every candidate passes a 1-ply
-  safety veto that refuses to hang material anywhere or allow mate-in-1, and the
-  engine narrates the opening or rule that fired.
+  safety veto that refuses to hang material anywhere or allow mate-in-1. On top of
+  the base evaluation, a **positional refinement layer** judges *where* a maxim
+  places a piece the way a primer would — avoid squares an enemy pawn can kick,
+  prefer a protected outpost, keep knights off the rim, develop with tempo — and
+  the engine narrates the opening or rule *and its reasons*: e.g.
+  `info string rule 6: develop a knight (safe from pawn kicks, to an outpost)`.
 - **KNEEJERK** — pure positional intuition: try every move, statically score the
   result with the tapered PeSTO eval, play the best. Zero lookahead; the cleanest
   illustration of "what evaluation alone buys you."

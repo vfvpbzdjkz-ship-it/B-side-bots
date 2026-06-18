@@ -94,7 +94,8 @@ def test_copybook_develops_a_knight_out_of_book():
     board, engine, move = _choose("copybook", "4k3/8/8/8/8/8/8/1N2K3 w - - 0 1")
     mover = board.piece_at(move.from_square)
     assert mover.piece_type == chess.KNIGHT
-    assert engine.narration == "rule 6: develop a knight"
+    # Narration may carry refinement reasons, e.g. "(safe from pawn kicks)".
+    assert engine.narration.startswith("rule 6: develop a knight")
 
 
 def test_copybook_pushes_a_passed_pawn_in_the_endgame():
@@ -102,7 +103,7 @@ def test_copybook_pushes_a_passed_pawn_in_the_endgame():
     # endgame maxim should advance it.
     board, engine, move = _choose("copybook", "8/8/8/4k3/8/2P5/8/4K3 w - - 0 1")
     assert move.uci() in {"c3c4"}
-    assert engine.narration == "rule 9: push a passed pawn"
+    assert engine.narration.startswith("rule 9: push a passed pawn")
 
 
 def test_copybook_takes_a_free_capture_rule_3():
