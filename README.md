@@ -1,0 +1,204 @@
+# RETRO ROSTER — B-Side Engines
+
+Five earnest, lightweight chess engines, each built around an old, outdated, or
+proof-of-concept idea — plus a cheeky sixth, **MIRROR**, that just parrots its
+opponent. None are *intentionally* bad — every one tries its best; they're just
+charmingly limited. All ship as **UCI** engines, run on the **lichess-bot** bridge,
+and share a single safety-first harness.
+
+| Engine     | Primary system                                               | Era / origin                                  | Difficulty |
+|------------|--------------------------------------------------------------|-----------------------------------------------|------------|
+| TURAMPION  | Point-count eval + "dead-position" (proto-quiescence) search | Turochamp, 1948 (homage)                      | Low-Med    |
+| SHANNSTEIN | Selective forward pruning — search only *plausible* moves    | Shannon Type-B 1950 + Bernstein 1957 (fusion) | Low-Med    |
+| COPYBOOK   | Prioritized if-then rule cascade (symbolic expert system)    | 1950s–60s rule-based AI                       | Low        |
+| KNEEJERK   | 1-ply tapered piece-square eval (intuition, no lookahead)    | Proof of concept                              | Very Low   |
+| BEELINE    | King-tropism eval (pieces gain value near the enemy king)    | Classic eval-term gimmick                     | Low-Med    |
+| MIRROR     | Mirrors the opponent's move; random engine when it can't     | Symmetry gag (plays Black)                    | Varies     |
+
+## Design — one harness, five strategies
+
+Every engine differs *only* in how it picks a move. UCI handling, time budgeting,
+the legal-move safety net, and the random tiebreak are shared, so a bug fixed once
+is fixed everywhere. Each engine implements the same tiny interface:
+
+```python
+class Engine:
+    name: str
+    author: str
+    def new_game(self) -> None: ...                # optional per-game reset
+    def choose_move(self, board, limits) -> chess.Move: ...
+```
+
+The UCI driver picks which engine to load from the `ENGINE` environment variable
+(or `--engine` flag), so each gets its own lichess-bot config pointed at the same
+program with a different flag.
+
+## Layout
+
+```
+retro/
+  uci.py              UCI stdin/stdout driver (shared)
+  harness.py          safety wrapper: always legal, in time, never crashes
+  timeman.py          TimeLimits + budgeting
+  gui.py              Tkinter graphical board (play any engine)
+  lichess.py          stdlib Lichess Bot API client + persisted settings
+  lichessgui.py       "Play on Lichess" window (challenge bots, watch games)
+  common/
+    evalutil.py       material values, tapered PeSTO PST eval, game-phase
+    tactics.py        mate_in_1, is_hanging, see_gain (approx SEE)
+    moveutil.py       plausibility scoring, random tiebreak, helpers
+    openings.py       built-in named opening book (COPYBOOK plays "by the book")
+    positional.py     placement refinement: pawn kicks, outposts, the rim, tempo
+  engines/
+    turampion.py  shannstein.py  copybook.py  kneejerk.py  beeline.py  mirror.py
+lichess-bot/          ready-to-use wrappers + config for the Lichess bridge
+tests/                perft, safety battery, eval, tactics, per-engine behavior
+run.sh / run.bat      launch the UCI driver (ENGINE selects the strategy)
+RetroRoster.pyw       double-click on Windows to open the GUI
+config.json           per-engine knobs / roster description
+```
+
+## Requirements
+
+- Python 3.11+
+- `python-chess` and `pytest` (`pip install -r requirements.txt`)
+- No numpy. Tkinter (bundled with most Python installs) only for the optional GUI.
+
+## Running an engine (UCI)
+
+```bash
+pip install -r requirements.txt
+ENGINE=copybook ./run.sh          # or run.bat on Windows; defaults to kneejerk
+```
+
+Then talk UCI to it, or load it in a GUI like **Cute Chess** as a UCI engine.
+Quick manual check:
+
+```bash
+printf 'uci\nposition startpos\ngo movetime 500\nquit\n' | ENGINE=beeline ./run.sh
+```
+
+COPYBOOK additionally narrates the rule it fired, e.g.
+`info string rule 6: develop a knight`.
+
+## Graphical interface (play against any engine)
+
+A small Tkinter board is included — pick an engine from the dropdown and play:
+
+```bash
+python3 -m retro.gui
+```
+
+On **Windows** just double-click **`RetroRoster.pyw`** (or `Launch-RetroRoster.bat`)
+to open the board with no console window. Click a piece, then its destination;
+pawn promotions auto-queen. The status bar shows the engine's move and COPYBOOK's
+rule narration.
+
+### Play on Lichess from the GUI
+
+Click **"Play on Lichess…"** to open a panel that drives a real game on
+lichess.org with one of the engines making every move:
+
+- paste your **Lichess bot API token** — it's **saved** to `~/.retro_roster.json`
+  and reloaded next time you open the app (along with your other choices);
+- **Verify** the token (shows the logged-in account and warns if it isn't a bot
+  account);
+- **Upgrade to bot** — one-click, in-app conversion of the token's account into a
+  BOT account (with a confirmation prompt, since it's permanent and only works on an
+  account that has never played a game);
+- choose which **engine** plays, the **colour**, **casual vs rated**, and a
+  **time control** preset;
+- **Refresh** a scrollable list of **online bots**, click one to set it as the
+  opponent (or type a username);
+- hit **Challenge & Play** — the game streams onto the main board and your engine
+  answers through the Bot API; **View on Lichess** opens the live game in your
+  browser mid-game, and **Resign / Stop** ends it.
+
+> The token's account must be a [Lichess **bot** account](https://lichess.org/api#tag/Bot),
+> and this needs outbound network access to lichess.org. Everything network-facing
+> runs on a background thread, so the window stays responsive.
+
+### Building a standalone Windows `.exe`
+
+To hand someone a single double-clickable executable with nothing else to install,
+run **`build_windows_exe.bat`** on a Windows machine with Python. It uses
+PyInstaller to bundle everything into `dist\RetroRoster.exe`. (A compiled binary
+isn't committed to the repo; you build it from source with that script.)
+
+## Playing on Lichess
+
+The engines plug straight into the [lichess-bot](https://github.com/lichess-bot-devs/lichess-bot)
+bridge. See [`lichess-bot/README.md`](lichess-bot/README.md): copy the example
+config, point it at the wrapper for the engine you want (`lichess-bot/engines/retro-<name>`),
+add your bot token, and run. Run five accounts to put the whole roster online at once.
+
+## The engines
+
+- **TURAMPION** — a point-count evaluation (material, mobility via `√moves`, piece
+  safety, king safety, castling, pawn advancement, check/mate threats) scored after
+  a *dead-position* search that follows captures, recaptures and brief checks until
+  the position is quiet. Proto-quiescence, decades early. Plays like a thoughtful
+  Victorian beginner.
+- **SHANNSTEIN** — negamax alpha-beta that, at every node, scores moves with a cheap
+  `plausibility` heuristic and recurses only on the top-K (Bernstein's ~7). Fast and
+  pointed — and authentically prunes away the real best move when the heuristic
+  misses it. Always keeps *all* moves when there are fewer than K.
+- **COPYBOOK** — plays strictly "by the book", and says so. It first consults a
+  built-in **opening book** of named mainlines (Ruy Lopez, Sicilian Najdorf,
+  Queen's Gambit, King's Indian, …) and follows theory while it lasts
+  (`info string book: Ruy Lopez`). Out of book it falls back to a prioritized
+  cascade of chess-primer **maxims** — mate, escape check, safe capture, save a
+  hanging piece, castle, develop a minor knights-first, stake a center pawn, rook to
+  an open file, and endgame principles (push a passed pawn, centralize the king),
+  with a best-safe-move fallback. No search tree: every candidate passes a 1-ply
+  safety veto that refuses to hang material anywhere or allow mate-in-1. On top of
+  the base evaluation, a **positional refinement layer** judges *where* a maxim
+  places a piece the way a primer would — avoid squares an enemy pawn can kick,
+  prefer a protected outpost, keep knights off the rim, develop with tempo — and
+  the engine narrates the opening or rule *and its reasons*: e.g.
+  `info string rule 6: develop a knight (safe from pawn kicks, to an outpost)`.
+- **KNEEJERK** — pure positional intuition: try every move, statically score the
+  result with the tapered PeSTO eval, play the best. Zero lookahead; the cleanest
+  illustration of "what evaluation alone buys you."
+- **BEELINE** — material + tapered PST + a *king-tropism* term (every piece gains
+  value near the enemy king, plus king-ring attacker and check bonuses), driven by a
+  shallow 2–3 ply alpha-beta so it attacks without simply donating material.
+- **MIRROR** — the parrot. Replies with the vertically-mirrored copy of the
+  opponent's last move (White's `e2e4` → Black's `e7e5`), keeping a symmetric game
+  symmetric. The instant the mirror image is illegal — or there's nothing to mirror
+  yet — it hands the move to a *random* one of the other engines. Designed to play
+  Black.
+
+## Safety guarantees (the harness)
+
+`harness.safe_choose` guarantees every engine, no matter how it misbehaves:
+
+- returns a **legal** move (random-legal fallback on any error or illegal return),
+- never runs past its time budget (cooperative deadline + a hard worker-thread
+  deadline), so it never flags on Lichess,
+- never crashes the process.
+
+## Testing
+
+```bash
+pytest
+```
+
+- `test_perft.py` — python-chess movegen sanity (start position to depth 4).
+- `test_safety.py` — **critical, runs against every engine**: over a battery of
+  positions each engine returns a legal move within budget and never raises; forced
+  exceptions, illegal returns, and runaway searches all hit the fallback.
+- `test_evalutil.py` — tapered eval is color-symmetric; phase hits middlegame at full
+  material and endgame with bare kings.
+- `test_tactics.py` — `mate_in_1`, `is_hanging`, `see_gain` on hand-built positions.
+- `test_engines.py` — per-engine character: TURAMPION wins a free exchange via the
+  dead search, SHANNSTEIN keeps all moves under K, COPYBOOK plays the mate and
+  narrates rule 1, follows its opening book and names the opening, pushes a passed
+  pawn in the endgame; KNEEJERK develops on move 1, BEELINE steers toward the king,
+  MIRROR reflects the opponent's move and falls back when it can't.
+
+## Credits
+
+Evaluation uses the public-domain **PeSTO** piece-square tables (Ronald Friederich /
+RofChade). Chess rules and move generation are provided by `python-chess`; all
+evaluation and move-choice logic here is original.

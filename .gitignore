@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# PyInstaller build output (the Windows .exe build)
+build/
+dist/
+*.spec
+
+# Optional scratch data
+data/
+
+# OS noise
+.DS_Store
+Thumbs.db
