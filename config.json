@@ -12,7 +12,7 @@
       "max_depth": 4
     },
     "copybook": {
-      "description": "Prioritized if-then rule cascade; narrates the rule that fired.",
+      "description": "Plays by the book: a named opening book first, then a prioritized cascade of chess-primer maxims (incl. endgame principles). Narrates the opening or rule that fired. No search.",
       "narrate": true
     },
     "kneejerk": {

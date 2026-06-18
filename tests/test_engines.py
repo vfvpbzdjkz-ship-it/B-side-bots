@@ -68,11 +68,41 @@ def test_copybook_plays_mate_and_narrates_rule_1():
     assert engine.narration == "rule 1: deliver mate"
 
 
-def test_copybook_develops_a_knight_from_startpos():
+def test_copybook_plays_opening_book_from_startpos():
+    # "By the book": the start position is theory, so COPYBOOK plays a known first
+    # move and names the opening.
     board, engine, move = _choose("copybook", chess.STARTING_FEN)
+    assert move in set(board.legal_moves)
+    assert engine.narration.startswith("book:")
+    assert move.uci() in {"e2e4", "d2d4", "c2c4", "g1f3"}
+
+
+def test_copybook_follows_book_into_a_named_opening():
+    # After 1.e4 e5 2.Nf3 Nc6 the position is still theory; COPYBOOK keeps booking.
+    board = chess.Board()
+    for uci in ("e2e4", "e7e5", "g1f3", "b8c6"):
+        board.push_uci(uci)
+    engine = get_engine("copybook")
+    move = engine.choose_move(board, TimeLimits(movetime=0.2))
+    assert move in set(board.legal_moves)
+    assert engine.narration.startswith("book:")  # e.g. Ruy Lopez / Italian / Scotch
+
+
+def test_copybook_develops_a_knight_out_of_book():
+    # A non-theoretical position where nothing else fires: the maxim cascade should
+    # develop a knight off the back rank.
+    board, engine, move = _choose("copybook", "4k3/8/8/8/8/8/8/1N2K3 w - - 0 1")
     mover = board.piece_at(move.from_square)
     assert mover.piece_type == chess.KNIGHT
     assert engine.narration == "rule 6: develop a knight"
+
+
+def test_copybook_pushes_a_passed_pawn_in_the_endgame():
+    # King-and-pawn endgame with a clear passed pawn and nothing tactical: the
+    # endgame maxim should advance it.
+    board, engine, move = _choose("copybook", "8/8/8/4k3/8/2P5/8/4K3 w - - 0 1")
+    assert move.uci() in {"c3c4"}
+    assert engine.narration == "rule 9: push a passed pawn"
 
 
 def test_copybook_takes_a_free_capture_rule_3():

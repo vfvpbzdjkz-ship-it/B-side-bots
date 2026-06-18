@@ -47,6 +47,7 @@ retro/
     evalutil.py       material values, tapered PeSTO PST eval, game-phase
     tactics.py        mate_in_1, is_hanging, see_gain (approx SEE)
     moveutil.py       plausibility scoring, random tiebreak, helpers
+    openings.py       built-in named opening book (COPYBOOK plays "by the book")
   engines/
     turampion.py  shannstein.py  copybook.py  kneejerk.py  beeline.py  mirror.py
 lichess-bot/          ready-to-use wrappers + config for the Lichess bridge
@@ -141,10 +142,16 @@ add your bot token, and run. Run five accounts to put the whole roster online at
   `plausibility` heuristic and recurses only on the top-K (Bernstein's ~7). Fast and
   pointed — and authentically prunes away the real best move when the heuristic
   misses it. Always keeps *all* moves when there are fewer than K.
-- **COPYBOOK** — a prioritized cascade of ten if-then maxims (mate, escape check,
-  safe capture, save a hanging piece, castle, develop a minor knights-first, stake a
-  center pawn, rook to an open file, improve the worst piece, safe waiting move).
-  No search tree; each candidate passes a 1-ply safety veto. It explains itself.
+- **COPYBOOK** — plays strictly "by the book", and says so. It first consults a
+  built-in **opening book** of named mainlines (Ruy Lopez, Sicilian Najdorf,
+  Queen's Gambit, King's Indian, …) and follows theory while it lasts
+  (`info string book: Ruy Lopez`). Out of book it falls back to a prioritized
+  cascade of chess-primer **maxims** — mate, escape check, safe capture, save a
+  hanging piece, castle, develop a minor knights-first, stake a center pawn, rook to
+  an open file, and endgame principles (push a passed pawn, centralize the king),
+  with a best-safe-move fallback. No search tree: every candidate passes a 1-ply
+  safety veto that refuses to hang material anywhere or allow mate-in-1, and the
+  engine narrates the opening or rule that fired.
 - **KNEEJERK** — pure positional intuition: try every move, statically score the
   result with the tapered PeSTO eval, play the best. Zero lookahead; the cleanest
   illustration of "what evaluation alone buys you."
@@ -181,7 +188,8 @@ pytest
 - `test_tactics.py` — `mate_in_1`, `is_hanging`, `see_gain` on hand-built positions.
 - `test_engines.py` — per-engine character: TURAMPION wins a free exchange via the
   dead search, SHANNSTEIN keeps all moves under K, COPYBOOK plays the mate and
-  narrates rule 1, KNEEJERK develops on move 1, BEELINE steers toward the king,
+  narrates rule 1, follows its opening book and names the opening, pushes a passed
+  pawn in the endgame; KNEEJERK develops on move 1, BEELINE steers toward the king,
   MIRROR reflects the opponent's move and falls back when it can't.
 
 ## Credits

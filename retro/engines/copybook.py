@@ -25,12 +25,16 @@ from typing import List, Optional, Tuple
 
 import chess
 
-from ..common.evalutil import MG_PST, EG_PST, evaluate, phase_weights
+from ..common.evalutil import MG_PST, EG_PST, evaluate, game_phase, phase_weights
 from ..common.moveutil import open_file_score
+from ..common.openings import book_move
 from ..common.tactics import is_hanging, mate_in_1, see_gain
 from ..timeman import TimeLimits
 
 CENTER = {chess.D4, chess.E4, chess.D5, chess.E5}
+# Below this remaining-material phase we are "in the endgame" and switch on the
+# endgame maxims (push passed pawns, march the king up).
+ENDGAME_PHASE = 8
 Candidate = Tuple[chess.Move, str]
 
 
@@ -49,23 +53,34 @@ class Copybook:
             self._rule_develop_minor,    # 6
             self._rule_center_pawn,      # 7
             self._rule_rook_open_file,   # 8
-            self._rule_improve_worst,    # 9
-            self._rule_waiting,          # 10
+            self._rule_push_passed_pawn,  # 9  (endgame)
+            self._rule_activate_king,     # 10 (endgame)
+            self._rule_improve_worst,     # 11
+            self._rule_waiting,           # 12
         ]
 
     def new_game(self) -> None:
         self.narration = ""
 
     def choose_move(self, board: chess.Board, limits: TimeLimits) -> chess.Move:
+        # First, play "by the book": if the position is still known opening theory,
+        # follow it and name the opening.
+        booked = book_move(board)
+        if booked is not None:
+            move, opening = booked
+            self.narration = f"book: {opening}"
+            return move
+
+        # Out of book — fall back to the cascade of chess-primer maxims.
         for number, rule in enumerate(self._rules, start=1):
             result = rule(board)
             if result is not None:
                 move, description = result
                 self.narration = f"rule {number}: {description}"
                 return move
-        # Should be unreachable (rule 10 always finds something), but stay safe.
+        # Should be unreachable (the waiting rule always finds something), but stay safe.
         move = random.choice(list(board.legal_moves))
-        self.narration = "rule 10: safe waiting move"
+        self.narration = "rule 12: safe waiting move"
         return move
 
     # --- rule 1 -----------------------------------------------------------
@@ -213,7 +228,50 @@ class Copybook:
             return best, "put a rook on an open file"
         return None
 
-    # --- rule 9 -----------------------------------------------------------
+    # --- rule 9 (endgame) -------------------------------------------------
+    def _rule_push_passed_pawn(self, board) -> Optional[Candidate]:
+        if game_phase(board) > ENDGAME_PHASE:
+            return None
+        us = board.turn
+        candidates = []
+        for move in board.legal_moves:
+            mover = board.piece_at(move.from_square)
+            if mover is None or mover.piece_type != chess.PAWN:
+                continue
+            if not _is_passed(board, move.from_square, us):
+                continue
+            # A forward push of a passed pawn (not a capture sideways).
+            if chess.square_file(move.from_square) != chess.square_file(move.to_square):
+                continue
+            if self._safe(board, move):
+                candidates.append(move)
+        if candidates:
+            best = max(candidates, key=lambda m: self._score_move(board, m))
+            return best, "push a passed pawn"
+        return None
+
+    # --- rule 10 (endgame) ------------------------------------------------
+    def _rule_activate_king(self, board) -> Optional[Candidate]:
+        if game_phase(board) > ENDGAME_PHASE:
+            return None
+        us = board.turn
+        king_sq = board.king(us)
+        current = _piece_pst(board, king_sq)
+        improving = []
+        for move in board.legal_moves:
+            if move.from_square != king_sq or not self._safe(board, move):
+                continue
+            board.push(move)
+            placed = _piece_pst(board, move.to_square)
+            board.pop()
+            if placed > current:  # the king steps toward the centre / the action
+                improving.append(move)
+        if improving:
+            best = max(improving, key=lambda m: self._score_move(board, m))
+            return best, "centralize the king"
+        return None
+
+    # --- rule 11 ----------------------------------------------------------
     def _rule_improve_worst(self, board) -> Optional[Candidate]:
         us = board.turn
         squares = [sq for sq in chess.scan_forward(board.occupied_co[us])
@@ -238,7 +296,7 @@ class Copybook:
                 return best, "improve the worst-placed piece"
         return None
 
-    # --- rule 10 ----------------------------------------------------------
+    # --- rule 12 ----------------------------------------------------------
     def _rule_waiting(self, board) -> Optional[Candidate]:
         legal = list(board.legal_moves)
         if not legal:
@@ -309,3 +367,22 @@ def _piece_pst(board: chess.Board, square: int) -> float:
     pt = piece.piece_type
     idx = chess.square_mirror(square) if piece.color == chess.WHITE else square
     return mg_w * MG_PST[pt][idx] + eg_w * EG_PST[pt][idx]
+
+
+def _is_passed(board: chess.Board, square: int, color: chess.Color) -> bool:
+    """A pawn is passed if no enemy pawn can stop it on its file or the adjacent ones."""
+    file = chess.square_file(square)
+    rank = chess.square_rank(square)
+    enemy = not color
+    for f in (file - 1, file, file + 1):
+        if not 0 <= f < 8:
+            continue
+        for r in range(8):
+            piece = board.piece_at(chess.square(f, r))
+            if piece is None or piece.piece_type != chess.PAWN or piece.color != enemy:
+                continue
+            if color == chess.WHITE and r > rank:
+                return False
+            if color == chess.BLACK and r < rank:
+                return False
+    return True
